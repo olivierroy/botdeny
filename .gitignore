@@ -1,0 +1,9 @@
+.gocache/
+blockdeny.conf
+block.log
+botdeny.log
+*.mmdb
+.DS_Store
+.idea/
+.vscode/
+*.log
