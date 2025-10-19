@@ -23,6 +23,7 @@ type FileConfig struct {
 	AllowAgents      []string `yaml:"allow_agents"`
 	BotCountries     []string `yaml:"bot_countries"`
 	AllowIPs         []string `yaml:"allow_ips"`
+	AllowCIDRs       []string `yaml:"allow_cidrs"`
 	AllowIPFiles     []string `yaml:"allow_ip_files"`
 	MinRequests      *int     `yaml:"min_requests"`
 	MaxAverageRPM    *float64 `yaml:"max_average_rpm"`
@@ -33,6 +34,7 @@ type FileConfig struct {
 	MinUniquePaths   *int     `yaml:"min_unique_paths"`
 	ScoreThreshold   *int     `yaml:"score_threshold"`
 	MinPHP404s       *int     `yaml:"min_php_404s"`
+	MaxErrorPercent  *float64 `yaml:"max_error_percent"`
 }
 
 // RuntimeDefaults carries non-Config defaults sourced from YAML.
@@ -117,6 +119,12 @@ func applyConfigDefaults(target *Config, fc FileConfig) error {
 	}
 	if len(fc.AllowIPs) > 0 {
 		target.AllowedIPs = dedupeStrings(append(target.AllowedIPs, fc.AllowIPs...))
+	}
+	if len(fc.AllowCIDRs) > 0 {
+		target.AllowedCIDRs = dedupeStrings(append(target.AllowedCIDRs, fc.AllowCIDRs...))
+	}
+	if fc.MaxErrorPercent != nil {
+		target.MaxErrorPercent = *fc.MaxErrorPercent
 	}
 	return nil
 }

@@ -57,6 +57,7 @@ func main() {
 	additionalWhitelist := make([]string, 0)
 	penalizedCountries := make([]string, 0)
 	allowIPsFromFlags := make([]string, 0)
+	allowCIDRsFromFlags := make([]string, 0)
 	allowIPFiles := append([]string{}, defaults.AllowIPFiles...)
 	flag.IntVar(&cfg.MinRequests, "min-requests", cfg.MinRequests, "minimum requests before considering an IP")
 	flag.Float64Var(&cfg.MaxAverageRPM, "max-rpm", cfg.MaxAverageRPM, "flag if average requests per minute exceeds this value")
@@ -67,6 +68,7 @@ func main() {
 	flag.IntVar(&cfg.MinUniquePaths, "unique-paths", cfg.MinUniquePaths, "flag if unique paths meets or exceeds this value")
 	flag.IntVar(&cfg.MinPHP404s, "php404", cfg.MinPHP404s, "flag if number of 404 responses for .php URIs exceeds this value")
 	flag.IntVar(&cfg.ScoreThreshold, "score-threshold", cfg.ScoreThreshold, "minimum score before an IP is reported")
+	flag.Float64Var(&cfg.MaxErrorPercent, "max-error-percent", cfg.MaxErrorPercent, "do not block if overall error percentage is below this threshold")
 	flag.Func("allow-agent", "user agent substring to treat as trusted (can repeat)", func(val string) error {
 		if val != "" {
 			additionalWhitelist = append(additionalWhitelist, val)
@@ -82,6 +84,12 @@ func main() {
 	flag.Func("allow-ip", "source IP to treat as allowed (can repeat)", func(val string) error {
 		if val != "" {
 			allowIPsFromFlags = append(allowIPsFromFlags, val)
+		}
+		return nil
+	})
+	flag.Func("allow-cidr", "CIDR range to treat as allowed (can repeat)", func(val string) error {
+		if val != "" {
+			allowCIDRsFromFlags = append(allowCIDRsFromFlags, val)
 		}
 		return nil
 	})
@@ -114,6 +122,9 @@ func main() {
 	}
 	if len(allowIPsFromFlags) > 0 {
 		cfg.AllowedIPs = dedupeStrings(append(cfg.AllowedIPs, allowIPsFromFlags...))
+	}
+	if len(allowCIDRsFromFlags) > 0 {
+		cfg.AllowedCIDRs = dedupeStrings(append(cfg.AllowedCIDRs, allowCIDRsFromFlags...))
 	}
 
 	if len(allowIPFiles) > 0 {
@@ -167,6 +178,20 @@ func main() {
 	if len(suspects) == 0 {
 		fmt.Println("no suspicious IPs detected with current thresholds")
 		return
+	}
+	totalRequests := 0
+	totalErrors := 0
+	for _, stat := range analyzer.Stats() {
+		totalRequests += stat.Requests
+		for status, count := range stat.StatusCounts {
+			if status >= 400 {
+				totalErrors += count
+			}
+		}
+	}
+	errorPercent := 0.0
+	if totalRequests > 0 {
+		errorPercent = (float64(totalErrors) / float64(totalRequests)) * 100
 	}
 
 	displaySuspects := suspects
@@ -230,16 +255,21 @@ func main() {
 	}
 
 	if *denyOutput != "" {
-		if err := writeDenyFile(*denyOutput, suspects, *denyExpiry); err != nil {
-			log.Fatalf("write deny config: %v", err)
-		}
-		log.Printf("wrote deny config to %s (%d entries)", *denyOutput, len(suspects))
-
-		if *nginxReload {
-			if err := runNginxReload(*nginxBin); err != nil {
-				log.Fatalf("nginx reload: %v", err)
+		skipDeny := errorPercent > cfg.MaxErrorPercent
+		if skipDeny {
+			log.Printf("skip deny config: error rate %.2f%% exceeds max %.2f%%", errorPercent, cfg.MaxErrorPercent)
+		} else {
+			if err := writeDenyFile(*denyOutput, suspects, *denyExpiry); err != nil {
+				log.Fatalf("write deny config: %v", err)
 			}
-			log.Print("nginx reloaded successfully")
+			log.Printf("wrote deny config to %s (%d entries, error rate %.2f%%)", *denyOutput, len(suspects), errorPercent)
+
+			if *nginxReload {
+				if err := runNginxReload(*nginxBin); err != nil {
+					log.Fatalf("nginx reload: %v", err)
+				}
+				log.Print("nginx reloaded successfully")
+			}
 		}
 	}
 }
@@ -307,7 +337,21 @@ func writeDenyFile(path string, suspects []Suspicion, ttl time.Duration) error {
 		for _, suspect := range suspects {
 			reasons := strings.Join(suspect.Reasons, "; ")
 			reasons = strings.ReplaceAll(reasons, "\n", " ")
-			comment := fmt.Sprintf("expires %s", expiry.Format("2006-01-02"))
+			errors := 0
+			for status, count := range suspect.Stats.StatusCounts {
+				if status >= 400 {
+					errors += count
+				}
+			}
+			iso := suspect.Stats.CountryISO
+			if iso == "" {
+				iso = "-"
+			}
+			name := suspect.Stats.CountryName
+			if name == "" {
+				name = "-"
+			}
+			comment := fmt.Sprintf("expires %s; errors=%d; country=%s (%s)", expiry.Format("2006-01-02"), errors, iso, name)
 			if reasons != "" {
 				comment = fmt.Sprintf("%s; %s", comment, reasons)
 			}

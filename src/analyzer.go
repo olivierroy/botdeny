@@ -23,6 +23,7 @@ type Config struct {
 	SuspiciousCountries []string
 	AllowedIPs          []string
 	AllowedCIDRs        []string
+	MaxErrorPercent     float64
 }
 
 // DefaultConfig provides baseline heuristics for suspicious traffic.
@@ -51,6 +52,7 @@ func DefaultConfig() Config {
 		SuspiciousCountries: []string{"CN", "RU", "KP", "IR"},
 		AllowedIPs:          nil,
 		AllowedCIDRs:        nil,
+		MaxErrorPercent:     100,
 	}
 }
 
@@ -308,6 +310,15 @@ func (a *Analyzer) isAllowed(ip string) bool {
 		}
 	}
 	return false
+}
+
+// Stats returns a snapshot of the internal per-IP statistics.
+func (a *Analyzer) Stats() []*IPStats {
+	stats := make([]*IPStats, 0, len(a.stats))
+	for _, stat := range a.stats {
+		stats = append(stats, stat)
+	}
+	return stats
 }
 
 func containsSubstring(value string, substrings []string) bool {

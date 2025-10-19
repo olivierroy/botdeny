@@ -19,6 +19,7 @@ Key flags:
 - `--config`: load defaults from a YAML config file (see below).
 - `--allow-agent`: add additional trusted crawler substrings (repeats allowed) beyond the baked-in list for Google, Bing, Pinterest, etc.
 - `--allow-ip`: add an individual source IP to the allowlist (repeatable).
+- `--allow-cidr`: add a CIDR range to the allowlist (repeatable).
 - `--allow-ip-file`: parse trusted IPs/CIDRs from files containing directives like `set_real_ip_from` (repeatable).
 - `--color`: enable ANSI colors in the report when your terminal supports them.
 - `--geoip-db`: supply a MaxMind GeoIP2/GeoLite2 Country database to enrich reports with country metadata.
@@ -29,6 +30,7 @@ Key flags:
 - `--nginx-reload`: after writing the deny file, run `nginx -t` followed by `nginx -s reload`.
 - `--nginx-bin`: override the nginx binary path when using `--nginx-reload` (default `nginx`).
 - `--block-log`: append a timestamped summary of blocked IPs and reasons to the given log file.
+- `--max-error-percent`: skip writing the deny file when overall error percentage exceeds this threshold (default `100`).
 
 ### YAML configuration
 
@@ -39,7 +41,7 @@ file: /var/log/nginx/access.log
 top: 20
 color: true
 geoip_db: /usr/share/GeoIP/GeoLite2-Country.mmdb
-deny_output: /etc/nginx/includes/blockdeny.conf
+deny_output: /etc/nginx/includes/botdeny.conf
 deny_expiry: 168h
 nginx_reload: true
 nginx_bin: /usr/sbin/nginx
@@ -51,6 +53,10 @@ bot_countries:
   - VN
 allow_ips:
   - 34.91.94.224
+allow_cidrs:
+  - 34.120.207.104/32
+  - 130.211.0.0/22
+  - 35.191.0.0/16
 allow_ip_files:
   - /etc/nginx/cloudflare_realip.conf
 min_requests: 40
@@ -62,14 +68,23 @@ min_error_ratio: 0.4
 min_unique_paths: 120
 score_threshold: 2
 min_php_404s: 5
+max_error_percent: 85
 ```
 
 Values from the config file populate the tool's defaults; any CLI flag you pass explicitly still wins at runtime.
 
-`allow_ips` can list trusted source addresses that should never be scored or included in deny files, useful for known preloaders or internal monitors. `allow_ip_files` accepts paths to files containing `set_real_ip_from` directives (such as Cloudflare ranges) and automatically allowlists every IP or CIDR declared inside.
+`allow_ips` can list trusted source addresses, while `allow_cidrs` covers entire ranges (for example, Google Cloud load balancers). `allow_ip_files` accepts paths to files containing `set_real_ip_from` directives (such as Cloudflare ranges) and automatically allowlists every IP or CIDR declared inside.
 
 The CLI prints the highest-scoring IPs, their request counts, and the heuristics that fired so you can review or feed the results into automated deny lists.
 Each suspect also includes its top user agents and frequent paths to help explain what was fetched.
+
+## Nginx setup
+
+Add to /etc/nginx/nginx.conf in the http { .. } section
+```
+include botdeny.conf;
+```
+
 
 ## Limitations & Next Steps
 
