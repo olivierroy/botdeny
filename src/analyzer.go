@@ -25,6 +25,7 @@ type Config struct {
 	AllowedCIDRs        []string
 	MaxErrorPercent     float64
 	AllowedURIs         []string
+	MinSQLInjections    int
 }
 
 // DefaultConfig provides baseline heuristics for suspicious traffic.
@@ -55,25 +56,27 @@ func DefaultConfig() Config {
 		AllowedCIDRs:        nil,
 		MaxErrorPercent:     100,
 		AllowedURIs:         nil,
+		MinSQLInjections:    3,
 	}
 }
 
 // IPStats aggregates metrics per source IP.
 type IPStats struct {
-	IP           string
-	Requests     int
-	FirstSeen    time.Time
-	LastSeen     time.Time
-	StatusCounts map[int]int
-	UniquePaths  map[string]struct{}
-	UserAgents   map[string]int
-	Bytes        int64
-	BurstWindows []time.Time
-	PathCounts   map[string]int
-	Whitelisted  bool
-	CountryISO   string
-	CountryName  string
-	PHP404s      int
+	IP             string
+	Requests       int
+	FirstSeen      time.Time
+	LastSeen       time.Time
+	StatusCounts   map[int]int
+	UniquePaths    map[string]struct{}
+	UserAgents     map[string]int
+	Bytes          int64
+	BurstWindows   []time.Time
+	PathCounts     map[string]int
+	Whitelisted    bool
+	CountryISO     string
+	CountryName    string
+	PHP404s        int
+	SQLInjections  int
 }
 
 // Analyzer encapsulates the detection logic state.
@@ -189,6 +192,10 @@ func (a *Analyzer) Process(entry Entry) {
 		ipStat.PHP404s++
 	}
 
+	if isSQLInjection(entry.URI) {
+		ipStat.SQLInjections++
+	}
+
 	ipStat.Bytes += entry.Bytes
 	ipStat.BurstWindows = append(ipStat.BurstWindows, entry.Time)
 }
@@ -262,18 +269,40 @@ func (a *Analyzer) Suspicious() []Suspicion {
 			reasons = append(reasons, fmt.Sprintf("%d php 404s", stat.PHP404s))
 		}
 
+		if stat.SQLInjections >= a.cfg.MinSQLInjections {
+			score += 2
+			reasons = append(reasons, fmt.Sprintf("%d SQL injection attempts", stat.SQLInjections))
+		}
+
 		if stat.CountryISO != "" && containsStringCI(stat.CountryISO, a.cfg.SuspiciousCountries) {
 			score++
 			reasons = append(reasons, fmt.Sprintf("country %s flagged", stat.CountryISO))
 		}
 
 		if score >= a.cfg.ScoreThreshold {
-			suspects = append(suspects, Suspicion{
-				IP:      stat.IP,
-				Score:   score,
-				Reasons: reasons,
-				Stats:   stat,
-			})
+			// More intelligent blocking: require higher score for low-error traffic
+			errorRatio := 0.0
+			if stat.Requests > 0 {
+				errorRatio = float64(errorCount) / float64(stat.Requests)
+			}
+
+			// If traffic has very few errors (<10%), require score >= 4
+			// If traffic has no errors at all, require score >= 5
+			shouldBlock := true
+			if errorCount == 0 {
+				shouldBlock = score >= 5
+			} else if errorRatio < 0.10 {
+				shouldBlock = score >= 4
+			}
+
+			if shouldBlock {
+				suspects = append(suspects, Suspicion{
+					IP:      stat.IP,
+					Score:   score,
+					Reasons: reasons,
+					Stats:   stat,
+				})
+			}
 		}
 	}
 
@@ -371,6 +400,59 @@ func containsStringCI(value string, items []string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// isSQLInjection checks if a URI contains SQL injection patterns.
+func isSQLInjection(uri string) bool {
+	if uri == "" {
+		return false
+	}
+
+	uriLower := strings.ToLower(uri)
+
+	// SQL keywords and patterns
+	sqlPatterns := []string{
+		"union select",
+		"union all select",
+		"select.*from",
+		"insert into",
+		"delete from",
+		"drop table",
+		"update.*set",
+		"exec(",
+		"execute(",
+		"pg_sleep",
+		"sleep(",
+		"benchmark(",
+		"waitfor delay",
+		"'or'1'='1",
+		"\"or\"1\"=\"1",
+		"or 1=1",
+		"and 1=1",
+		"' or '",
+		"\" or \"",
+		"--",
+		"';--",
+		"\";--",
+		"/**/",
+		"xp_",
+		"sp_",
+		"0x",
+		"char(",
+		"concat(",
+		"information_schema",
+		"sysobjects",
+		"syscolumns",
+		"sysmaster",
+	}
+
+	for _, pattern := range sqlPatterns {
+		if strings.Contains(uriLower, pattern) {
+			return true
+		}
+	}
+
 	return false
 }
 

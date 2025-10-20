@@ -36,6 +36,7 @@ type FileConfig struct {
 	ScoreThreshold   *int     `yaml:"score_threshold"`
 	MinPHP404s       *int     `yaml:"min_php_404s"`
 	MaxErrorPercent  *float64 `yaml:"max_error_percent"`
+	MinSQLInjections *int     `yaml:"min_sql_injections"`
 }
 
 // RuntimeDefaults carries non-Config defaults sourced from YAML.
@@ -129,6 +130,9 @@ func applyConfigDefaults(target *Config, fc FileConfig) error {
 	}
 	if fc.MaxErrorPercent != nil {
 		target.MaxErrorPercent = *fc.MaxErrorPercent
+	}
+	if fc.MinSQLInjections != nil {
+		target.MinSQLInjections = *fc.MinSQLInjections
 	}
 	return nil
 }

@@ -68,6 +68,7 @@ func main() {
 	flag.Float64Var(&cfg.MinErrorRatio, "error-ratio", cfg.MinErrorRatio, "flag if error ratio meets or exceeds this value")
 	flag.IntVar(&cfg.MinUniquePaths, "unique-paths", cfg.MinUniquePaths, "flag if unique paths meets or exceeds this value")
 	flag.IntVar(&cfg.MinPHP404s, "php404", cfg.MinPHP404s, "flag if number of 404 responses for .php URIs exceeds this value")
+	flag.IntVar(&cfg.MinSQLInjections, "sql-injections", cfg.MinSQLInjections, "flag if number of SQL injection attempts exceeds this value")
 	flag.IntVar(&cfg.ScoreThreshold, "score-threshold", cfg.ScoreThreshold, "minimum score before an IP is reported")
 	flag.Float64Var(&cfg.MaxErrorPercent, "max-error-percent", cfg.MaxErrorPercent, "do not block if overall error percentage is below this threshold")
 	flag.Func("allow-agent", "user agent substring to treat as trusted (can repeat)", func(val string) error {
@@ -353,6 +354,10 @@ func writeDenyFile(path string, suspects []Suspicion, ttl time.Duration) error {
 					errors += count
 				}
 			}
+			errorPercent := 0.0
+			if suspect.Stats.Requests > 0 {
+				errorPercent = (float64(errors) / float64(suspect.Stats.Requests)) * 100
+			}
 			iso := suspect.Stats.CountryISO
 			if iso == "" {
 				iso = "-"
@@ -361,7 +366,7 @@ func writeDenyFile(path string, suspects []Suspicion, ttl time.Duration) error {
 			if name == "" {
 				name = "-"
 			}
-			comment := fmt.Sprintf("expires %s; errors=%d; country=%s (%s)", expiry.Format("2006-01-02"), errors, iso, name)
+			comment := fmt.Sprintf("expires %s; errors=%d (%.1f%%); country=%s (%s)", expiry.Format("2006-01-02"), errors, errorPercent, iso, name)
 			if reasons != "" {
 				comment = fmt.Sprintf("%s; %s", comment, reasons)
 			}

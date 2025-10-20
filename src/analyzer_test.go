@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -165,6 +166,76 @@ func TestAnalyzerRespectsMinRequestsEvenForCountryPenalty(t *testing.T) {
 	suspects := analyzer.Suspicious()
 	if len(suspects) != 0 {
 		t.Fatalf("expected no suspects when request count below min threshold, got %d", len(suspects))
+	}
+}
+
+func TestAnalyzerSQLInjection(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.MinRequests = 1
+	cfg.ScoreThreshold = 1
+	cfg.MinSQLInjections = 3
+
+	a := New(cfg, nil)
+
+	// Regular requests
+	a.Process(Entry{
+		Time:       time.Now(),
+		ClientIP:   "1.2.3.4",
+		RemoteAddr: "1.2.3.4",
+		Status:     200,
+		URI:        "/products?page=1",
+	})
+	a.Process(Entry{
+		Time:       time.Now(),
+		ClientIP:   "1.2.3.4",
+		RemoteAddr: "1.2.3.4",
+		Status:     200,
+		URI:        "/products?page=2",
+	})
+
+	// SQL injection attempts
+	a.Process(Entry{
+		Time:       time.Now(),
+		ClientIP:   "1.2.3.4",
+		RemoteAddr: "1.2.3.4",
+		Status:     403,
+		URI:        "/page?id=1' OR '1'='1",
+	})
+	a.Process(Entry{
+		Time:       time.Now(),
+		ClientIP:   "1.2.3.4",
+		RemoteAddr: "1.2.3.4",
+		Status:     403,
+		URI:        "/page?id=1 UNION SELECT * FROM users--",
+	})
+	a.Process(Entry{
+		Time:       time.Now(),
+		ClientIP:   "1.2.3.4",
+		RemoteAddr: "1.2.3.4",
+		Status:     403,
+		URI:        "/page?id=1 AND 1=1; pg_sleep(5)",
+	})
+
+	suspects := a.Suspicious()
+	if len(suspects) != 1 {
+		t.Fatalf("expected 1 suspect, got %d", len(suspects))
+	}
+
+	found := false
+	for _, reason := range suspects[0].Reasons {
+		if strings.Contains(reason, "SQL injection") {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("expected SQL injection reason, got %v", suspects[0].Reasons)
+	}
+
+	stat := suspects[0].Stats
+	if stat.SQLInjections != 3 {
+		t.Errorf("expected 3 SQL injections, got %d", stat.SQLInjections)
 	}
 }
 
