@@ -25,6 +25,7 @@ type FileConfig struct {
 	AllowIPs         []string `yaml:"allow_ips"`
 	AllowCIDRs       []string `yaml:"allow_cidrs"`
 	AllowIPFiles     []string `yaml:"allow_ip_files"`
+	AllowURLs        []string `yaml:"allow_urls"`
 	MinRequests      *int     `yaml:"min_requests"`
 	MaxAverageRPM    *float64 `yaml:"max_average_rpm"`
 	MaxBurstWindow   string   `yaml:"max_burst_window"`
@@ -122,6 +123,9 @@ func applyConfigDefaults(target *Config, fc FileConfig) error {
 	}
 	if len(fc.AllowCIDRs) > 0 {
 		target.AllowedCIDRs = dedupeStrings(append(target.AllowedCIDRs, fc.AllowCIDRs...))
+	}
+	if len(fc.AllowURLs) > 0 {
+		target.AllowedURIs = dedupeStrings(append(target.AllowedURIs, fc.AllowURLs...))
 	}
 	if fc.MaxErrorPercent != nil {
 		target.MaxErrorPercent = *fc.MaxErrorPercent

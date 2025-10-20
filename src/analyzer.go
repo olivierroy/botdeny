@@ -24,6 +24,7 @@ type Config struct {
 	AllowedIPs          []string
 	AllowedCIDRs        []string
 	MaxErrorPercent     float64
+	AllowedURIs         []string
 }
 
 // DefaultConfig provides baseline heuristics for suspicious traffic.
@@ -53,6 +54,7 @@ func DefaultConfig() Config {
 		AllowedIPs:          nil,
 		AllowedCIDRs:        nil,
 		MaxErrorPercent:     100,
+		AllowedURIs:         nil,
 	}
 }
 
@@ -81,6 +83,7 @@ type Analyzer struct {
 	geoLookup  GeoLookup
 	allowIPs   map[string]struct{}
 	allowCIDRs []*net.IPNet
+	allowURIs  []string
 }
 
 // New returns a configured Analyzer.
@@ -107,12 +110,22 @@ func New(cfg Config, geo GeoLookup) *Analyzer {
 		cidrs = append(cidrs, network)
 	}
 
+	normalizedURIs := make([]string, 0, len(cfg.AllowedURIs))
+	for _, uri := range cfg.AllowedURIs {
+		uri = strings.TrimSpace(uri)
+		if uri == "" {
+			continue
+		}
+		normalizedURIs = append(normalizedURIs, uri)
+	}
+
 	return &Analyzer{
 		cfg:        cfg,
 		stats:      make(map[string]*IPStats),
 		geoLookup:  geo,
 		allowIPs:   allowed,
 		allowCIDRs: cidrs,
+		allowURIs:  normalizedURIs,
 	}
 }
 
@@ -121,6 +134,10 @@ func (a *Analyzer) Process(entry Entry) {
 	ip := entry.ClientIP
 	if ip == "" {
 		ip = entry.RemoteAddr
+	}
+
+	if a.isAllowedURI(entry.URI) {
+		return
 	}
 
 	ipStat, ok := a.stats[ip]
@@ -193,6 +210,9 @@ func (a *Analyzer) Suspicious() []Suspicion {
 			continue
 		}
 		if stat.Whitelisted {
+			continue
+		}
+		if stat.Requests < a.cfg.MinRequests {
 			continue
 		}
 		score := 0
@@ -319,6 +339,18 @@ func (a *Analyzer) Stats() []*IPStats {
 		stats = append(stats, stat)
 	}
 	return stats
+}
+
+func (a *Analyzer) isAllowedURI(uri string) bool {
+	if uri == "" || len(a.allowURIs) == 0 {
+		return false
+	}
+	for _, allowed := range a.allowURIs {
+		if strings.HasPrefix(uri, allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsSubstring(value string, substrings []string) bool {

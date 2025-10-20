@@ -131,3 +131,72 @@ func TestAnalyzerAllowedCIDR(t *testing.T) {
 		t.Fatalf("expected no suspects for allowed cidr")
 	}
 }
+
+func TestAnalyzerRespectsMinRequestsEvenForCountryPenalty(t *testing.T) {
+	geo := func(ip string) (GeoInfo, bool) {
+		return GeoInfo{CountryISO: "CN", CountryName: "China"}, true
+	}
+
+	cfg := Config{
+		MinRequests:         10,
+		MaxAverageRPM:       0,
+		MaxBurstWindow:      time.Minute,
+		MaxBurstRequests:    10,
+		Min404Errors:        0,
+		MinErrorRatio:       0,
+		MinUniquePaths:      1,
+		ScoreThreshold:      1,
+		WhitelistAgents:     nil,
+		MinPHP404s:          0,
+		SuspiciousCountries: []string{"CN"},
+	}
+
+	analyzer := New(cfg, geo)
+	for i := 0; i < 5; i++ {
+		analyzer.Process(Entry{
+			ClientIP:   "5.5.5.5",
+			RemoteAddr: "5.5.5.5",
+			Time:       time.Now().Add(time.Duration(i) * time.Second),
+			URI:        "/",
+			Status:     200,
+		})
+	}
+
+	suspects := analyzer.Suspicious()
+	if len(suspects) != 0 {
+		t.Fatalf("expected no suspects when request count below min threshold, got %d", len(suspects))
+	}
+}
+
+func TestAnalyzerAllowedURI(t *testing.T) {
+	cfg := Config{
+		MinRequests:         1,
+		MaxAverageRPM:       0,
+		MaxBurstWindow:      time.Minute,
+		MaxBurstRequests:    10,
+		Min404Errors:        0,
+		MinErrorRatio:       0,
+		MinUniquePaths:      1,
+		ScoreThreshold:      1,
+		WhitelistAgents:     nil,
+		MinPHP404s:          0,
+		SuspiciousCountries: nil,
+		AllowedURIs:         []string{"/whitelist"},
+	}
+
+	analyzer := New(cfg, nil)
+	for i := 0; i < 5; i++ {
+		analyzer.Process(Entry{
+			ClientIP:   "6.6.6.6",
+			RemoteAddr: "6.6.6.6",
+			Time:       time.Now().Add(time.Duration(i) * time.Second),
+			URI:        "/whitelist/path",
+			Status:     200,
+		})
+	}
+
+	suspects := analyzer.Suspicious()
+	if len(suspects) != 0 {
+		t.Fatalf("expected no suspects when requests hit allowed uri")
+	}
+}

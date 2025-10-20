@@ -59,6 +59,7 @@ func main() {
 	allowIPsFromFlags := make([]string, 0)
 	allowCIDRsFromFlags := make([]string, 0)
 	allowIPFiles := append([]string{}, defaults.AllowIPFiles...)
+	allowURIsFromFlags := make([]string, 0)
 	flag.IntVar(&cfg.MinRequests, "min-requests", cfg.MinRequests, "minimum requests before considering an IP")
 	flag.Float64Var(&cfg.MaxAverageRPM, "max-rpm", cfg.MaxAverageRPM, "flag if average requests per minute exceeds this value")
 	flag.IntVar(&cfg.MaxBurstRequests, "burst", cfg.MaxBurstRequests, "flag if number of requests within burst window exceeds this value")
@@ -99,6 +100,12 @@ func main() {
 		}
 		return nil
 	})
+	flag.Func("allow-url", "request URI prefix to ignore from analysis (can repeat)", func(val string) error {
+		if val != "" {
+			allowURIsFromFlags = append(allowURIsFromFlags, val)
+		}
+		return nil
+	})
 	flag.Parse()
 
 	if *configFlag != configPath && *configFlag != "" {
@@ -125,6 +132,9 @@ func main() {
 	}
 	if len(allowCIDRsFromFlags) > 0 {
 		cfg.AllowedCIDRs = dedupeStrings(append(cfg.AllowedCIDRs, allowCIDRsFromFlags...))
+	}
+	if len(allowURIsFromFlags) > 0 {
+		cfg.AllowedURIs = dedupeStrings(append(cfg.AllowedURIs, allowURIsFromFlags...))
 	}
 
 	if len(allowIPFiles) > 0 {
