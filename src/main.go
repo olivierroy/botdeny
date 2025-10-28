@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"sort"
@@ -333,6 +334,11 @@ func colorForScore(score int) string {
 	}
 }
 
+func isValidIP(ipStr string) bool {
+	parsed := net.ParseIP(ipStr)
+	return parsed != nil
+}
+
 func writeDenyFile(path string, suspects []Suspicion, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = 7 * 24 * time.Hour
@@ -345,7 +351,15 @@ func writeDenyFile(path string, suspects []Suspicion, ttl time.Duration) error {
 	if len(suspects) == 0 {
 		builder.WriteString("# no suspicious IPs detected with current thresholds\n")
 	} else {
+		skipped := 0
 		for _, suspect := range suspects {
+			// Skip IPs that fail validation
+			if !isValidIP(suspect.IP) {
+				log.Printf("warning: skipping invalid IP in deny file: %q", suspect.IP)
+				skipped++
+				continue
+			}
+
 			reasons := strings.Join(suspect.Reasons, "; ")
 			reasons = strings.ReplaceAll(reasons, "\n", " ")
 			errors := 0
@@ -371,6 +385,9 @@ func writeDenyFile(path string, suspects []Suspicion, ttl time.Duration) error {
 				comment = fmt.Sprintf("%s; %s", comment, reasons)
 			}
 			builder.WriteString(fmt.Sprintf("deny %s; # %s\n", suspect.IP, comment))
+		}
+		if skipped > 0 {
+			log.Printf("skipped %d invalid IP(s) from deny file", skipped)
 		}
 	}
 

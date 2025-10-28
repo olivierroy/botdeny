@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -111,6 +113,11 @@ func Stream(r io.Reader) (<-chan Entry, <-chan error) {
 				return
 			}
 
+			// Skip entries with invalid/empty client IP
+			if entry.ClientIP == "" {
+				continue
+			}
+
 			entries <- entry
 		}
 
@@ -125,9 +132,18 @@ func Stream(r io.Reader) (<-chan Entry, <-chan error) {
 	return entries, errs
 }
 
+func isValidIPAddress(ipStr string) bool {
+	parsed := net.ParseIP(ipStr)
+	return parsed != nil
+}
+
 func deriveClientIP(remoteAddr, forwarded string) string {
 	forwarded = strings.TrimSpace(forwarded)
 	if forwarded == "" || forwarded == "-" {
+		if !isValidIPAddress(remoteAddr) {
+			log.Printf("warning: invalid IP in RemoteAddr: %q", remoteAddr)
+			return ""
+		}
 		return remoteAddr
 	}
 
@@ -135,9 +151,17 @@ func deriveClientIP(remoteAddr, forwarded string) string {
 	for _, part := range parts {
 		ip := strings.TrimSpace(part)
 		if ip != "" {
+			if !isValidIPAddress(ip) {
+				log.Printf("warning: invalid IP in X-Forwarded-For: %q", ip)
+				continue
+			}
 			return ip
 		}
 	}
 
+	if !isValidIPAddress(remoteAddr) {
+		log.Printf("warning: invalid IP in RemoteAddr: %q", remoteAddr)
+		return ""
+	}
 	return remoteAddr
 }
