@@ -432,7 +432,6 @@ func isSQLInjection(uri string) bool {
 		"and 1=1",
 		"' or '",
 		"\" or \"",
-		"--",
 		"';--",
 		"\";--",
 		"/**/",
@@ -451,6 +450,13 @@ func isSQLInjection(uri string) bool {
 		if strings.Contains(uriLower, pattern) {
 			return true
 		}
+	}
+
+	// Check for SQL comment at end of URI (common injection technique)
+	// This catches cases like: /page?id=1-- or /page?id=1 --
+	trimmed := strings.TrimSpace(uriLower)
+	if strings.HasSuffix(trimmed, "--") {
+		return true
 	}
 
 	return false

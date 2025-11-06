@@ -271,3 +271,29 @@ func TestAnalyzerAllowedURI(t *testing.T) {
 		t.Fatalf("expected no suspects when requests hit allowed uri")
 	}
 }
+
+func TestSQLInjectionDetection(t *testing.T) {
+	tests := []struct {
+		uri      string
+		expected bool
+		desc     string
+	}{
+		{"/admin?reason=ChatGPT+--+Imbretex", false, "legitimate double dash in text"},
+		{"/admin?reason=Auto-categorization -- test", false, "double dash with surrounding text"},
+		{"/page?id=1' OR '1'='1", true, "classic SQL injection"},
+		{"/page?id=1';--", true, "SQL comment with quote"},
+		{"/page?id=1--", true, "SQL comment at end"},
+		{"/page?id=1 -- ", true, "SQL comment with spaces"},
+		{"/page?id=1 UNION SELECT * FROM users", true, "union select"},
+		{"/page?id=1 AND 1=1", true, "AND 1=1 pattern"},
+		{"/products?page=1", false, "normal request"},
+		{"/admin/change_reviews?reason=Test", false, "normal admin request"},
+	}
+
+	for _, tt := range tests {
+		result := isSQLInjection(tt.uri)
+		if result != tt.expected {
+			t.Errorf("isSQLInjection(%q) = %v, want %v (%s)", tt.uri, result, tt.expected, tt.desc)
+		}
+	}
+}
