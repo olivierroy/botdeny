@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release artifacts
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          declare -a targets=(
+            "linux amd64"
+            "linux arm64"
+            "darwin amd64"
+            "darwin arm64"
+            "windows amd64"
+          )
+          for target in "${targets[@]}"; do
+            read -r os arch <<<"$target"
+            base="botdeny_${os}_${arch}"
+            out_dir="dist/${base}"
+            mkdir -p "$out_dir"
+            bin_name="botdeny"
+            if [[ "$os" == "windows" ]]; then
+              bin_name+=".exe"
+            fi
+            echo "Building $base"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -o "$out_dir/$bin_name" ./src
+            (cd dist && {
+              if [[ "$os" == "windows" ]]; then
+                zip -r "${base}.zip" "$base"
+              else
+                tar -czf "${base}.tar.gz" "$base"
+              fi
+            })
+          done
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -62,21 +62,20 @@ func DefaultConfig() Config {
 
 // IPStats aggregates metrics per source IP.
 type IPStats struct {
-	IP             string
-	Requests       int
-	FirstSeen      time.Time
-	LastSeen       time.Time
-	StatusCounts   map[int]int
-	UniquePaths    map[string]struct{}
-	UserAgents     map[string]int
-	Bytes          int64
-	BurstWindows   []time.Time
-	PathCounts     map[string]int
-	Whitelisted    bool
-	CountryISO     string
-	CountryName    string
-	PHP404s        int
-	SQLInjections  int
+	IP            string
+	Requests      int
+	FirstSeen     time.Time
+	LastSeen      time.Time
+	StatusCounts  map[int]int
+	UniquePaths   map[string]struct{}
+	UserAgents    map[string]int
+	Bytes         int64
+	BurstWindows  []time.Time
+	PathCounts    map[string]int
+	CountryISO    string
+	CountryName   string
+	PHP404s       int
+	SQLInjections int
 }
 
 // Analyzer encapsulates the detection logic state.
@@ -143,6 +142,11 @@ func (a *Analyzer) Process(entry Entry) {
 		return
 	}
 
+	// Skip requests with whitelisted user agents (e.g., legitimate bots)
+	if entry.UserAgent != "" && containsSubstring(entry.UserAgent, a.cfg.WhitelistAgents) {
+		return
+	}
+
 	ipStat, ok := a.stats[ip]
 	if !ok {
 		ipStat = &IPStats{
@@ -183,9 +187,6 @@ func (a *Analyzer) Process(entry Entry) {
 
 	if entry.UserAgent != "" {
 		ipStat.UserAgents[entry.UserAgent]++
-		if containsSubstring(entry.UserAgent, a.cfg.WhitelistAgents) {
-			ipStat.Whitelisted = true
-		}
 	}
 
 	if entry.Status == 404 && strings.Contains(strings.ToLower(entry.URI), ".php") {
@@ -214,9 +215,6 @@ func (a *Analyzer) Suspicious() []Suspicion {
 
 	for _, stat := range a.stats {
 		if a.isAllowed(stat.IP) {
-			continue
-		}
-		if stat.Whitelisted {
 			continue
 		}
 		if stat.Requests < a.cfg.MinRequests {
