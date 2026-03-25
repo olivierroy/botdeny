@@ -2,6 +2,50 @@
 
 A Go-based tool that parses Nginx `access.log` files and highlights source IPs that exhibit suspicious behaviour such as high request rates, bursts, excessive errors, or wide path spraying.
 
+## Build
+
+Requirements:
+
+- Go 1.24 or newer
+
+Build a local binary from the project root:
+
+```bash
+go build -o botdeny ./src
+```
+
+Run the binary:
+
+```bash
+./botdeny --file access.log --top 10
+```
+
+If you prefer not to keep a built binary around, you can run it directly with Go:
+
+```bash
+GOCACHE=$(pwd)/.gocache go run ./src --file access.log --top 10
+```
+
+## Test
+
+Run the full test suite:
+
+```bash
+GOCACHE=$(pwd)/.gocache go test ./src/...
+```
+
+Run tests with verbose output:
+
+```bash
+GOCACHE=$(pwd)/.gocache go test -v ./src/...
+```
+
+Run a single test by name:
+
+```bash
+GOCACHE=$(pwd)/.gocache go test ./src/... -run TestAnalyzerSensitiveURLBlocksBelowMinRequests
+```
+
 ## Usage
 
 ```bash
@@ -22,6 +66,7 @@ Key flags:
 - `--allow-cidr`: add a CIDR range to the allowlist (repeatable).
 - `--allow-ip-file`: parse trusted IPs/CIDRs from files containing directives like `set_real_ip_from` (repeatable).
 - `--allow-url`: ignore requests whose URI starts with the provided prefix (repeatable).
+- `--sensitive-url`: block repeated hits to a sensitive URI prefix, formatted as `/path=COUNT` (repeatable).
 - `--color`: enable ANSI colors in the report when your terminal supports them.
 - `--geoip-db`: supply a MaxMind GeoIP2/GeoLite2 Country database to enrich reports with country metadata.
 - `--php404`: flag IPs issuing at least this many `.php` requests that returned 404 (default `10`).
@@ -63,6 +108,11 @@ allow_ip_files:
   - /etc/nginx/cloudflare_realip.conf
 allow_urls:
   - /api/endpoint
+sensitive_urls:
+  - prefix: /sign_in
+    threshold: 5
+  - prefix: /admin/login
+    threshold: 3
 min_requests: 40
 max_average_rpm: 60
 max_burst_window: 30s
@@ -78,7 +128,7 @@ max_error_percent: 85
 
 Values from the config file populate the tool's defaults; any CLI flag you pass explicitly still wins at runtime.
 
-`allow_ips` can list trusted source addresses, while `allow_cidrs` covers entire ranges (for example, Google Cloud load balancers). `allow_ip_files` accepts paths to files containing `set_real_ip_from` directives (such as Cloudflare ranges) and automatically allowlists every IP or CIDR declared inside. `allow_urls` ignores requests whose URI starts with the provided prefixes so known noisy endpoints (e.g., preload menu generators) never trigger blocks.
+`allow_ips` can list trusted source addresses, while `allow_cidrs` covers entire ranges (for example, Google Cloud load balancers). `allow_ip_files` accepts paths to files containing `set_real_ip_from` directives (such as Cloudflare ranges) and automatically allowlists every IP or CIDR declared inside. `allow_urls` ignores requests whose URI starts with the provided prefixes so known noisy endpoints (e.g., preload menu generators) never trigger blocks. `sensitive_urls` lets you define prefixes such as `/sign_in` with a hit threshold that will block an IP even if it has not crossed the generic `min_requests` threshold yet.
 
 Set `max_error_percent` (or `--max-error-percent`) to suppress deny-file generation when overall errors suggest a wider incident; the tool will log a skip message instead of writing new blocks.
 

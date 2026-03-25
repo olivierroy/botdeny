@@ -272,6 +272,46 @@ func TestAnalyzerAllowedURI(t *testing.T) {
 	}
 }
 
+func TestAnalyzerSensitiveURLBlocksBelowMinRequests(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.MinRequests = 50
+	cfg.ScoreThreshold = 99
+	cfg.SensitiveURLLimits = []PathLimit{
+		{Prefix: "/sign_in", Threshold: 5},
+	}
+
+	analyzer := New(cfg, nil)
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		analyzer.Process(Entry{
+			ClientIP:   "7.7.7.7",
+			RemoteAddr: "7.7.7.7",
+			Time:       now.Add(time.Duration(i) * time.Second),
+			URI:        "/sign_in",
+			Status:     200,
+		})
+	}
+
+	suspects := analyzer.Suspicious()
+	if len(suspects) != 1 {
+		t.Fatalf("expected 1 suspect, got %d", len(suspects))
+	}
+	if suspects[0].IP != "7.7.7.7" {
+		t.Fatalf("unexpected IP reported: %s", suspects[0].IP)
+	}
+
+	found := false
+	for _, reason := range suspects[0].Reasons {
+		if strings.Contains(reason, "sensitive path /sign_in") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected sensitive path reason, got %v", suspects[0].Reasons)
+	}
+}
+
 func TestSQLInjectionDetection(t *testing.T) {
 	tests := []struct {
 		uri      string

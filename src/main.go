@@ -61,6 +61,7 @@ func main() {
 	allowCIDRsFromFlags := make([]string, 0)
 	allowIPFiles := append([]string{}, defaults.AllowIPFiles...)
 	allowURIsFromFlags := make([]string, 0)
+	sensitiveURLLimitsFromFlags := make([]PathLimit, 0)
 	flag.IntVar(&cfg.MinRequests, "min-requests", cfg.MinRequests, "minimum requests before considering an IP")
 	flag.Float64Var(&cfg.MaxAverageRPM, "max-rpm", cfg.MaxAverageRPM, "flag if average requests per minute exceeds this value")
 	flag.IntVar(&cfg.MaxBurstRequests, "burst", cfg.MaxBurstRequests, "flag if number of requests within burst window exceeds this value")
@@ -108,6 +109,25 @@ func main() {
 		}
 		return nil
 	})
+	flag.Func("sensitive-url", "URI prefix and hit threshold to block, formatted as /path=COUNT (can repeat)", func(val string) error {
+		parts := strings.SplitN(val, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid sensitive-url %q, want /path=count", val)
+		}
+		prefix := strings.TrimSpace(parts[0])
+		if prefix == "" {
+			return fmt.Errorf("invalid sensitive-url %q, prefix is empty", val)
+		}
+		var threshold int
+		if _, err := fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &threshold); err != nil || threshold <= 0 {
+			return fmt.Errorf("invalid sensitive-url %q, threshold must be a positive integer", val)
+		}
+		sensitiveURLLimitsFromFlags = append(sensitiveURLLimitsFromFlags, PathLimit{
+			Prefix:    prefix,
+			Threshold: threshold,
+		})
+		return nil
+	})
 	flag.Parse()
 
 	if *configFlag != configPath && *configFlag != "" {
@@ -137,6 +157,9 @@ func main() {
 	}
 	if len(allowURIsFromFlags) > 0 {
 		cfg.AllowedURIs = dedupeStrings(append(cfg.AllowedURIs, allowURIsFromFlags...))
+	}
+	if len(sensitiveURLLimitsFromFlags) > 0 {
+		cfg.SensitiveURLLimits = append(cfg.SensitiveURLLimits, sensitiveURLLimitsFromFlags...)
 	}
 
 	if len(allowIPFiles) > 0 {

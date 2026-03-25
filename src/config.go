@@ -11,32 +11,33 @@ import (
 
 // FileConfig represents configuration options supplied via YAML.
 type FileConfig struct {
-	File             string   `yaml:"file"`
-	Top              *int     `yaml:"top"`
-	Color            *bool    `yaml:"color"`
-	GeoIPDB          string   `yaml:"geoip_db"`
-	DenyOutput       string   `yaml:"deny_output"`
-	DenyExpiry       string   `yaml:"deny_expiry"`
-	NginxReload      *bool    `yaml:"nginx_reload"`
-	NginxBin         string   `yaml:"nginx_bin"`
-	BlockLog         string   `yaml:"block_log"`
-	AllowAgents      []string `yaml:"allow_agents"`
-	BotCountries     []string `yaml:"bot_countries"`
-	AllowIPs         []string `yaml:"allow_ips"`
-	AllowCIDRs       []string `yaml:"allow_cidrs"`
-	AllowIPFiles     []string `yaml:"allow_ip_files"`
-	AllowURLs        []string `yaml:"allow_urls"`
-	MinRequests      *int     `yaml:"min_requests"`
-	MaxAverageRPM    *float64 `yaml:"max_average_rpm"`
-	MaxBurstWindow   string   `yaml:"max_burst_window"`
-	MaxBurstRequests *int     `yaml:"max_burst_requests"`
-	Min404Errors     *int     `yaml:"min_404_errors"`
-	MinErrorRatio    *float64 `yaml:"min_error_ratio"`
-	MinUniquePaths   *int     `yaml:"min_unique_paths"`
-	ScoreThreshold   *int     `yaml:"score_threshold"`
-	MinPHP404s       *int     `yaml:"min_php_404s"`
-	MaxErrorPercent  *float64 `yaml:"max_error_percent"`
-	MinSQLInjections *int     `yaml:"min_sql_injections"`
+	File             string      `yaml:"file"`
+	Top              *int        `yaml:"top"`
+	Color            *bool       `yaml:"color"`
+	GeoIPDB          string      `yaml:"geoip_db"`
+	DenyOutput       string      `yaml:"deny_output"`
+	DenyExpiry       string      `yaml:"deny_expiry"`
+	NginxReload      *bool       `yaml:"nginx_reload"`
+	NginxBin         string      `yaml:"nginx_bin"`
+	BlockLog         string      `yaml:"block_log"`
+	AllowAgents      []string    `yaml:"allow_agents"`
+	BotCountries     []string    `yaml:"bot_countries"`
+	AllowIPs         []string    `yaml:"allow_ips"`
+	AllowCIDRs       []string    `yaml:"allow_cidrs"`
+	AllowIPFiles     []string    `yaml:"allow_ip_files"`
+	AllowURLs        []string    `yaml:"allow_urls"`
+	SensitiveURLs    []PathLimit `yaml:"sensitive_urls"`
+	MinRequests      *int        `yaml:"min_requests"`
+	MaxAverageRPM    *float64    `yaml:"max_average_rpm"`
+	MaxBurstWindow   string      `yaml:"max_burst_window"`
+	MaxBurstRequests *int        `yaml:"max_burst_requests"`
+	Min404Errors     *int        `yaml:"min_404_errors"`
+	MinErrorRatio    *float64    `yaml:"min_error_ratio"`
+	MinUniquePaths   *int        `yaml:"min_unique_paths"`
+	ScoreThreshold   *int        `yaml:"score_threshold"`
+	MinPHP404s       *int        `yaml:"min_php_404s"`
+	MaxErrorPercent  *float64    `yaml:"max_error_percent"`
+	MinSQLInjections *int        `yaml:"min_sql_injections"`
 }
 
 // RuntimeDefaults carries non-Config defaults sourced from YAML.
@@ -133,6 +134,9 @@ func applyConfigDefaults(target *Config, fc FileConfig) error {
 	}
 	if fc.MinSQLInjections != nil {
 		target.MinSQLInjections = *fc.MinSQLInjections
+	}
+	if len(fc.SensitiveURLs) > 0 {
+		target.SensitiveURLLimits = append([]PathLimit{}, fc.SensitiveURLs...)
 	}
 	return nil
 }

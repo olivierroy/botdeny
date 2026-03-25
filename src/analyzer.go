@@ -26,6 +26,13 @@ type Config struct {
 	MaxErrorPercent     float64
 	AllowedURIs         []string
 	MinSQLInjections    int
+	SensitiveURLLimits  []PathLimit
+}
+
+// PathLimit defines a URI prefix and the request count that should trigger blocking.
+type PathLimit struct {
+	Prefix    string `yaml:"prefix"`
+	Threshold int    `yaml:"threshold"`
 }
 
 // DefaultConfig provides baseline heuristics for suspicious traffic.
@@ -57,6 +64,7 @@ func DefaultConfig() Config {
 		MaxErrorPercent:     100,
 		AllowedURIs:         nil,
 		MinSQLInjections:    3,
+		SensitiveURLLimits:  nil,
 	}
 }
 
@@ -86,6 +94,7 @@ type Analyzer struct {
 	allowIPs   map[string]struct{}
 	allowCIDRs []*net.IPNet
 	allowURIs  []string
+	pathLimits []PathLimit
 }
 
 // New returns a configured Analyzer.
@@ -121,6 +130,15 @@ func New(cfg Config, geo GeoLookup) *Analyzer {
 		normalizedURIs = append(normalizedURIs, uri)
 	}
 
+	pathLimits := make([]PathLimit, 0, len(cfg.SensitiveURLLimits))
+	for _, limit := range cfg.SensitiveURLLimits {
+		limit.Prefix = strings.TrimSpace(limit.Prefix)
+		if limit.Prefix == "" || limit.Threshold <= 0 {
+			continue
+		}
+		pathLimits = append(pathLimits, limit)
+	}
+
 	return &Analyzer{
 		cfg:        cfg,
 		stats:      make(map[string]*IPStats),
@@ -128,6 +146,7 @@ func New(cfg Config, geo GeoLookup) *Analyzer {
 		allowIPs:   allowed,
 		allowCIDRs: cidrs,
 		allowURIs:  normalizedURIs,
+		pathLimits: pathLimits,
 	}
 }
 
@@ -217,11 +236,17 @@ func (a *Analyzer) Suspicious() []Suspicion {
 		if a.isAllowed(stat.IP) {
 			continue
 		}
-		if stat.Requests < a.cfg.MinRequests {
+		sensitiveReasons := a.sensitiveURLReasons(stat)
+		forceBlock := len(sensitiveReasons) > 0
+		if !forceBlock && stat.Requests < a.cfg.MinRequests {
 			continue
 		}
 		score := 0
-		reasons := make([]string, 0)
+		reasons := make([]string, 0, len(sensitiveReasons)+4)
+		if forceBlock {
+			score += len(sensitiveReasons) * 3
+			reasons = append(reasons, sensitiveReasons...)
+		}
 
 		duration := stat.LastSeen.Sub(stat.FirstSeen)
 		if duration < time.Minute {
@@ -277,7 +302,7 @@ func (a *Analyzer) Suspicious() []Suspicion {
 			reasons = append(reasons, fmt.Sprintf("country %s flagged", stat.CountryISO))
 		}
 
-		if score >= a.cfg.ScoreThreshold {
+		if forceBlock || score >= a.cfg.ScoreThreshold {
 			// More intelligent blocking: require higher score for low-error traffic
 			errorRatio := 0.0
 			if stat.Requests > 0 {
@@ -286,11 +311,14 @@ func (a *Analyzer) Suspicious() []Suspicion {
 
 			// If traffic has very few errors (<10%), require score >= 4
 			// If traffic has no errors at all, require score >= 5
-			shouldBlock := true
-			if errorCount == 0 {
-				shouldBlock = score >= 5
-			} else if errorRatio < 0.10 {
-				shouldBlock = score >= 4
+			shouldBlock := forceBlock
+			if !forceBlock {
+				shouldBlock = true
+				if errorCount == 0 {
+					shouldBlock = score >= 5
+				} else if errorRatio < 0.10 {
+					shouldBlock = score >= 4
+				}
 			}
 
 			if shouldBlock {
@@ -378,6 +406,26 @@ func (a *Analyzer) isAllowedURI(uri string) bool {
 		}
 	}
 	return false
+}
+
+func (a *Analyzer) sensitiveURLReasons(stat *IPStats) []string {
+	if stat == nil || len(a.pathLimits) == 0 || len(stat.PathCounts) == 0 {
+		return nil
+	}
+
+	reasons := make([]string, 0)
+	for _, limit := range a.pathLimits {
+		hits := 0
+		for path, count := range stat.PathCounts {
+			if strings.HasPrefix(path, limit.Prefix) {
+				hits += count
+			}
+		}
+		if hits >= limit.Threshold {
+			reasons = append(reasons, fmt.Sprintf("%d hits on sensitive path %s", hits, limit.Prefix))
+		}
+	}
+	return reasons
 }
 
 func containsSubstring(value string, substrings []string) bool {
